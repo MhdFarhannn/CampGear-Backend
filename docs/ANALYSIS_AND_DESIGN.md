@@ -196,6 +196,9 @@ Fine table:
 | `uq_users_no_telepon` | constraint | unique phone number (login key) |
 | `idx_peminjaman_tanggal`, `idx_log_aktivitas_waktu` | index | date-range reports and log filter |
 
+No schema change was needed for image upload: `alat.image_path VARCHAR(255)` already
+exists and now stores the server-generated URL (`/uploads/alat/<guid>.<ext>`).
+
 Schema changes are additive only. Table and column names follow `query.sql`.
 
 ## 6. Design decisions
@@ -207,4 +210,6 @@ Schema changes are additive only. Table and column names follow `query.sql`.
 | `DefaultTypeMap.MatchNamesWithUnderscores = true` | maps `harga_sewa` → `HargaSewa` without aliases |
 | `IDbTransaction` in services | one place per flow (submit, handover, return, delete) |
 | CSV for reports | printable, opens in Excel, no PDF library dependency |
+| Alat image upload as `multipart/form-data` | the client must send a real file, not a path; the backend stores it and keeps the DB portable |
+| Images on disk (`wwwroot/uploads/alat`) | no BLOB bloat in `alat`, served by `UseStaticFiles()` with zero extra packages |
 | Fine rates in `appsettings.json` | change without touching code or DB |

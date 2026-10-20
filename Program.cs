@@ -71,6 +71,7 @@ builder.Services.AddSingleton<JwtService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<UsersService>();
 builder.Services.AddScoped<KategoriService>();
+builder.Services.AddScoped<ImageService>();
 builder.Services.AddScoped<AlatService>();
 builder.Services.AddScoped<UnitAlatService>();
 builder.Services.AddScoped<PeminjamanService>();
@@ -89,6 +90,9 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+//SERVED UPLOADED IMAGES: /uploads/alat/<file>
+app.UseStaticFiles();
 
 app.UseCors();
 

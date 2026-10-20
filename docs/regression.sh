@@ -57,9 +57,13 @@ chk "K-4" "delete kategori in use (409)" "409" "$(code -X DELETE $B/kategori/1 -
 chk "K-5" "list kategori as peminjam" "200" "$(code $B/kategori -H "$HU")"
 
 # ---------- ALAT / UNIT ----------
-chk "A-1" "create alat" "200" "$(code -X POST $B/alat -H "$HA" -H "$HJ" -d '{"idKategori":1,"nama":"Tenda Test","deskripsi":"t","hargaSewa":10000}')"
+chk "A-1" "create alat (multipart)" "200" "$(code -X POST $B/alat -H "$HA" -F 'idKategori=1' -F 'nama=Tenda Test' -F 'deskripsi=t' -F 'hargaSewa=10000')"
 AID=$(mysql -u admin -pbodi campgear -N -e "select id from alat where nama='Tenda Test'" 2>/dev/null)
-chk "A-2" "create alat unknown kategori (404)" "404" "$(code -X POST $B/alat -H "$HA" -H "$HJ" -d '{"idKategori":999,"nama":"X","hargaSewa":1}')"
+chk "A-2" "create alat unknown kategori (404)" "404" "$(code -X POST $B/alat -H "$HA" -F 'idKategori=999' -F 'nama=X' -F 'hargaSewa=1')"
+chk "A-2b" "create alat without nama (400)" "400" "$(code -X POST $B/alat -H "$HA" -F 'idKategori=1' -F 'hargaSewa=1')"
+chk "A-2c" "create alat with image (stored + served)" "200" "$(code -X POST $B/alat -H "$HA" -F 'idKategori=1' -F 'nama=Tenda Foto' -F 'hargaSewa=1' -F 'gambar=@/tmp/opencode/tenda.png;type=image/png' >/dev/null; P=$(mysql -u admin -pbodi campgear -N -e "select image_path from alat where nama='Tenda Foto'" 2>/dev/null | tr -d '\n'); curl -s -m 10 -o /dev/null -w '%{http_code}' "http://localhost:5162$P")"
+FIMG=$(mysql -u admin -pbodi campgear -N -e "select id from alat where nama='Tenda Foto'" 2>/dev/null)
+chk "A-2d" "delete alat (also removes image file)" "200" "$(code -X DELETE $B/alat/$FIMG -H "$HA")"
 chk "A-3" "unit create" "200" "$(code -X POST $B/unit-alat -H "$HA" -H "$HJ" -d "{\"idAlat\":$AID,\"kodeInventaris\":\"TEST-001\",\"idStatusBarang\":1}")"
 chk "A-4" "unit duplicate code (409)" "409" "$(code -X POST $B/unit-alat -H "$HA" -H "$HJ" -d "{\"idAlat\":$AID,\"kodeInventaris\":\"TEST-001\",\"idStatusBarang\":1}")"
 chk "A-5" "new unit starts tersedia" "tersedia" "$(mysql -u admin -pbodi campgear -N -e "select sk.nama from unit_alat ua join status_ketersediaan sk on sk.id=ua.id_status_ketersediaan where ua.kode_inventaris='TEST-001'" 2>/dev/null)"

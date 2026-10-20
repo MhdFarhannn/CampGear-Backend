@@ -20,6 +20,17 @@ bash docs/regression.sh
 ```
 
 The script prints one `PASS`/`FAIL` line per check and a total.
+It needs a small PNG at `/tmp/opencode/tenda.png` for the image-upload checks:
+
+```bash
+python3 -c "
+import struct,zlib
+def chunk(t,d):
+    c=t+d; return struct.pack('>I',len(d))+c+struct.pack('>I',zlib.crc32(c)&0xffffffff)
+raw=b'\x00\xff\x00\x00'
+open('/tmp/opencode/tenda.png','wb').write(b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',1,1,8,2,0,0,0))+chunk(b'IDAT',zlib.compress(raw))+chunk(b'IEND',b''))
+"
+```
 It expects a clean database — rerunning it without a reset will produce different counts.
 
 ### Manual run
@@ -37,7 +48,7 @@ It expects a clean database — rerunning it without a reset will produce differ
 `docs/regression.sh` on MariaDB 13.0, freshly loaded database, .NET 10:
 
 ```
-TOTAL: 80  PASS: 80  FAIL: 0
+TOTAL: 83  PASS: 83  FAIL: 0
 ```
 
 Build: `0 Warning(s) 0 Error(s)`.
@@ -56,7 +67,12 @@ Build: `0 Warning(s) 0 Error(s)`.
 | TC-08 | Add user (Admin) | `{ idRole:3, nama:"Test User", password:"test1234", noTelepon:"0812-9999 8888" }` | 200, phone saved as `081299998888`, password hidden | 200, phone normalised, no hash in list | PASS |
 | TC-09 | Duplicate phone/unique rules | create same `noTelepon`, duplicate kategori, duplicate `kodeInventaris` | 409 each | 409 each | PASS |
 | TC-10 | Validation error | `POST /kategori {"nama":""}` | 400 with field errors | 400 `{"errors":{"Nama":["nama is required"]}}` | PASS |
-| TC-11 | Add alat + unit | alat `Tenda Test` in kategori 1, unit `TEST-001`, status `baik` | 200, unit starts as `tersedia` | 200, `tersedia` | PASS |
+| TC-11 | Add alat (multipart) + unit | `multipart/form-data`: `idKategori=1`, `nama=Tenda Test`, `hargaSewa=10000`, unit `TEST-001`, status `baik` | 200, unit starts as `tersedia` | 200, `tersedia` | PASS |
+| TC-11a | Add alat with image upload | form field `gambar` = 1×1 PNG | 200, `imagePath` set, file served at `/uploads/alat/...` (200) | 200, image URL stored, file served | PASS |
+| TC-11b | Add alat without `nama` | multipart, no `nama` field | 400 `nama is required` | 400 `nama is required` | PASS |
+| TC-11c | Add alat with wrong file type | `gambar` = `.txt` / `text/plain` | 400 `gambar must be a jpg, jpeg, png or webp file` | 400, same message | PASS |
+| TC-11d | Update alat without new image | `PUT` multipart without `gambar` | 200, old `imagePath` kept | 200, path unchanged | PASS |
+| TC-11e | Update alat with new image | `PUT` multipart with `gambar` | 200, new path stored, old file deleted | 200, old file gone | PASS |
 | TC-12 | Delete referenced data | `DELETE /alat/1`, `DELETE /kategori/1`, `DELETE /users/3` | 409 for each | 409 for each | PASS |
 | TC-13 | Borrow equipment | Peminjam: 2× Tenda Dome 4P + 1× Headlamp, 2026-10-21 → 2026-10-24 (3 days) | 200, `total_biaya = 324000` | total 324000, status `diajukan` | PASS |
 | TC-14 | Approve + handover | `PATCH /peminjaman/{id}/approve`, `/borrow` as Petugas | 200, status `disetujui` → `dipinjam`, 3 units assigned | 200; units `TND-DM4-001`, `TND-DM4-002`, `HDL-LED-001`; stock drops | PASS |
@@ -75,7 +91,7 @@ Build: `0 Warning(s) 0 Error(s)`.
 
 | Status | Endpoint used in the test |
 |---|---|
-| 400 | `POST /kategori` with empty name; return with a foreign unit |
+| 400 | `POST /kategori` with empty name; `POST /alat` multipart without `nama`; wrong image type; return with a foreign unit |
 | 401 | `GET /alat` without token; wrong password |
 | 403 | Peminjam on `/users`; Peminjam reading another loan; Peminjam approving a loan |
 | 404 | `GET /alat/999`; `GET /peminjaman/999`; unknown `idAlat` in a loan |
@@ -101,7 +117,10 @@ Take these from Swagger UI or Postman. Number them `01`–`24` in the report.
 **Admin**
 9. `POST /users` success + `GET /users` list (no password field)
 10. `POST /kategori`, `PUT`, `DELETE` success, plus the 409 duplicate
-11. `POST /alat` + `GET /alat` showing `stokTersedia`
+11. `POST /alat` with `multipart/form-data` (form + `gambar` file) in Postman, plus
+    `GET /alat` showing `stokTersedia` and the returned `imagePath`
+11a. The uploaded image opened in the browser at `http://localhost:5162/uploads/alat/<file>`
+11b. `400` response for a `.txt` upload and for a missing `nama` field
 12. `POST /unit-alat` + `GET /unit-alat?idAlat=1`
 13. Delete blocked with 409 (alat/kategori/user referenced)
 
@@ -128,3 +147,7 @@ Take these from Swagger UI or Postman. Number them `01`–`24` in the report.
 requests first, paste the tokens into the variables at the top, then run the rest.
 It also includes negative tests: wrong password, 403 for Peminjam on `/users`,
 409 duplicate kategori, 409 delete referenced alat, 401 without a token.
+
+For the multipart alat requests the `.http` file uses a raw multipart body with
+`< ./tenda.png`; place a `tenda.png` next to `CampGear-Backend.http` (or change the
+filename). In Postman choose **Body → form-data** and set `gambar` to type **File**.

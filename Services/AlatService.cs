@@ -7,11 +7,13 @@ namespace CampGearBackend.Services
     {
         private readonly Database db;
         private readonly LogAktivitasService log;
+        private readonly ImageService images;
 
-        public AlatService(Database _db, LogAktivitasService _log)
+        public AlatService(Database _db, LogAktivitasService _log, ImageService _images)
         {
             db = _db;
             log = _log;
+            images = _images;
         }
 
         //AVAILABLE STOCK = UNITS THAT ARE 'tersedia' AND NOT 'rusak_berat'
@@ -79,8 +81,10 @@ namespace CampGearBackend.Services
         }
 
         //CREATE
-        public async Task<bool> CreateAlat(AlatRequest request, uint idUser)
+        public async Task<bool> CreateAlat(AlatRequest request, uint idUser, IFormFile? gambar)
         {
+            Validate(request);
+
             using var conn = db.connect();
 
             const string checkKategori = @"
@@ -93,23 +97,39 @@ namespace CampGearBackend.Services
                 throw new AppException(404, "Kategori not found");
             }
 
+            var imagePath = await images.SaveAlatImage(gambar);
+
+            if (imagePath == null && !string.IsNullOrWhiteSpace(request.ImagePath))
+            {
+                imagePath = request.ImagePath.Trim();
+            }
+
             const string query = @"
                 INSERT INTO alat (id_kategori, nama, deskripsi, harga_sewa, image_path)
                 VALUES (@IdKategori, @Nama, @Deskripsi, @HargaSewa, @ImagePath)";
 
-            var result = await conn.ExecuteAsync(query, request);
+            var result = await conn.ExecuteAsync(query, new
+            {
+                request.IdKategori,
+                Nama = request.Nama.Trim(),
+                Deskripsi = request.Deskripsi,
+                request.HargaSewa,
+                ImagePath = imagePath
+            });
 
             if (result > 0)
             {
-                await log.Write(idUser, $"Menambah alat {request.Nama}");
+                await log.Write(idUser, $"Menambah alat {request.Nama.Trim()}");
             }
 
             return result > 0;
         }
 
         //UPDATE
-        public async Task<bool> UpdateAlat(uint id, AlatRequest request, uint idUser)
+        public async Task<bool> UpdateAlat(uint id, AlatRequest request, uint idUser, IFormFile? gambar)
         {
+            Validate(request);
+
             using var conn = db.connect();
 
             var current = await GetAlatById(id);
@@ -133,18 +153,26 @@ namespace CampGearBackend.Services
                     image_path = @ImagePath
                 WHERE id = @Id";
 
+            var uploaded = await images.SaveAlatImage(gambar);
+            var imagePath = uploaded ?? current.ImagePath;
+
             var result = await conn.ExecuteAsync(query, new
             {
                 Id = id,
                 IdKategori = request.IdKategori,
-                Nama = request.Nama,
+                Nama = request.Nama.Trim(),
                 Deskripsi = request.Deskripsi,
                 HargaSewa = request.HargaSewa,
-                ImagePath = request.ImagePath
+                ImagePath = imagePath
             });
 
             if (result > 0)
             {
+                if (imagePath != current.ImagePath)
+                {
+                    images.Delete(current.ImagePath);
+                }
+
                 await log.Write(idUser, $"Mengubah alat {current.Nama}");
             }
 
@@ -176,10 +204,35 @@ namespace CampGearBackend.Services
 
             if (result > 0)
             {
+                images.Delete(current.ImagePath);
                 await log.Write(idUser, $"Menghapus alat {current.Nama}");
             }
 
             return result > 0;
+        }
+
+        //VALIDATION FOR MULTIPART DATA (MODEL BINDING DOES NOT VALIDATE [FromForm] CLASSES HERE)
+        private static void Validate(AlatRequest request)
+        {
+            if (request.IdKategori == 0)
+            {
+                throw new AppException(400, "idKategori is required");
+            }
+
+            if (string.IsNullOrWhiteSpace(request.Nama))
+            {
+                throw new AppException(400, "nama is required");
+            }
+
+            if (request.Nama.Trim().Length > 150)
+            {
+                throw new AppException(400, "nama must not exceed 150 characters");
+            }
+
+            if (request.HargaSewa < 0)
+            {
+                throw new AppException(400, "hargaSewa must not be negative");
+            }
         }
     }
 }

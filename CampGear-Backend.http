@@ -79,12 +79,95 @@ Authorization: Bearer {{peminjamToken}}
 GET {{host}}/alat/1
 Authorization: Bearer {{peminjamToken}}
 
-### ALAT - create
+### ALAT - create (multipart/form-data with image)
 POST {{host}}/alat
 Authorization: Bearer {{adminToken}}
-Content-Type: application/json
+Content-Type: multipart/form-data; boundary=----CampGearBoundary
 
-{ "idKategori": 1, "nama": "Tenda Test", "deskripsi": "contoh", "hargaSewa": 10000 }
+------CampGearBoundary
+Content-Disposition: form-data; name="idKategori"
+
+1
+------CampGearBoundary
+Content-Disposition: form-data; name="nama"
+
+Tenda Test
+------CampGearBoundary
+Content-Disposition: form-data; name="deskripsi"
+
+contoh
+------CampGearBoundary
+Content-Disposition: form-data; name="hargaSewa"
+
+10000
+------CampGearBoundary
+Content-Disposition: form-data; name="gambar"; filename="tenda.png"
+Content-Type: image/png
+
+< ./tenda.png
+------CampGearBoundary--
+
+### ALAT - create (multipart/form-data without image)
+POST {{host}}/alat
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=----CampGearBoundary
+
+------CampGearBoundary
+Content-Disposition: form-data; name="idKategori"
+
+1
+------CampGearBoundary
+Content-Disposition: form-data; name="nama"
+
+Tenda Tanpa Gambar
+------CampGearBoundary
+Content-Disposition: form-data; name="hargaSewa"
+
+20000
+------CampGearBoundary--
+
+### ALAT - update (multipart/form-data, omit gambar to keep the old image)
+PUT {{host}}/alat/1
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=----CampGearBoundary
+
+------CampGearBoundary
+Content-Disposition: form-data; name="idKategori"
+
+1
+------CampGearBoundary
+Content-Disposition: form-data; name="nama"
+
+Tenda Dome 4P
+------CampGearBoundary
+Content-Disposition: form-data; name="hargaSewa"
+
+55000
+------CampGearBoundary--
+
+### ALAT - update (multipart/form-data with new image)
+PUT {{host}}/alat/1
+Authorization: Bearer {{adminToken}}
+Content-Type: multipart/form-data; boundary=----CampGearBoundary
+
+------CampGearBoundary
+Content-Disposition: form-data; name="idKategori"
+
+1
+------CampGearBoundary
+Content-Disposition: form-data; name="nama"
+
+Tenda Dome 4P
+------CampGearBoundary
+Content-Disposition: form-data; name="hargaSewa"
+
+50000
+------CampGearBoundary
+Content-Disposition: form-data; name="gambar"; filename="tenda.png"
+Content-Type: image/png
+
+< ./tenda.png
+------CampGearBoundary--
 
 ### ALAT - delete (expect 409, alat still has units)
 DELETE {{host}}/alat/1

@@ -30,6 +30,7 @@ DELETE FROM detail_peminjaman; DELETE FROM peminjaman;
 |---|---|
 | `Database:connection` | MySQL connection string |
 | `Cors:AllowedOrigins` | Frontend origins allowed by CORS |
+| `Uploads:AlatUrl` | Public URL prefix for alat images (default `/uploads/alat`) |
 | `Jwt:Secret` / `Issuer` / `Audience` / `ExpiryMinutes` | JWT signing and lifetime (120 minutes) |
 | `Denda:TerlambatPerHari` | Late fine per day per loan (10000) |
 | `Denda:RusakRingan` / `RusakBerat` / `Hilang` | Per-unit condition fine (25000 / 100000 / 250000) |
@@ -65,6 +66,23 @@ Passwords are stored as BCrypt hashes (cost 11). The phone number is normalised
 3. Use `CampGear-Backend.http` for the full happy path (login, create loan, approve,
    handover, return with fines, reports).
 
+## Alat create/update: JSON → multipart
+
+| Before | Now |
+|---|---|
+| `Content-Type: application/json` | `Content-Type: multipart/form-data` |
+| `{ "idKategori": 1, "nama": "...", "hargaSewa": 50000, "imagePath": null }` | same fields as form fields + `gambar` file |
+
+```bash
+curl -X POST http://localhost:5162/api/v1/alat \
+  -H "Authorization: Bearer <token>" \
+  -F "idKategori=1" -F "nama=Tenda Dome 4P" -F "hargaSewa=50000" \
+  -F "gambar=@tenda.png"
+```
+
+The image URL is returned by `GET /alat/{id}` as `imagePath`
+(`/uploads/alat/<guid>.png`). Full client examples: `docs/FRONTEND_API.md` §6.4.1.
+
 ## Endpoint summary
 
 | Module | Endpoints | Roles |
@@ -96,6 +114,11 @@ All list endpoints accept `page` and `pageSize` (default 20, maximum 100).
   Units: `baik`/`rusak_ringan` → `tersedia`; `rusak_berat`/`hilang` → `tidak_tersedia`.
 - **Logout**: JWT is stateless, so logout only writes `log_aktivitas` and the client
   discards the token. No blacklist is implemented (future work).
+- **Alat images:** `POST/PUT /alat` use `multipart/form-data` (was `application/json`)
+  with form fields `idKategori`, `nama`, `deskripsi?`, `hargaSewa` and an optional
+  `gambar` file (jpg/jpeg/png/webp, max 2 MB). Files are saved to
+  `wwwroot/uploads/alat/` and served from `/uploads/alat/...`; `PUT` without `gambar`
+  keeps the existing image.
 - Every multi-table action runs in one Dapper transaction
   (`BeginTransactionAsync` / `CommitAsync`, `RollbackAsync` in `catch`).
 

@@ -93,7 +93,22 @@
   `GET /api/v1/status*` lookup data is not used by the frontend. It can be enabled
   later by binding the body explicitly with `[FromBody]` inside the group.
 
-### 1.15 Compiler warnings in `JwtService` / `Env`
+### 1.15 Alat create/update could not receive a file
+- **Cause**: JSON endpoints only accept `imagePath` as text, and DataAnnotations are
+  not evaluated on `[FromForm]` classes bound manually from a minimal-API handler.
+- **Fix**: `POST/PUT /alat` read `multipart/form-data` via `HttpRequest.ReadFormAsync()`,
+  a new `ImageService` validates size/type/extensions, generates a GUID file name and
+  saves into `wwwroot/uploads/alat/`, `app.UseStaticFiles()` serves the files, and
+  `AlatService.Validate()` performs the field checks (400 with a clear message).
+  Uploads are limited to 2 MB and jpg/jpeg/png/webp.
+
+### 1.16 Uploading an image through the browser
+- **Pitfall**: setting `Content-Type: multipart/form-data` manually in `fetch`
+  drops the boundary, so the request body cannot be parsed (empty response).
+- **Rule**: send the `FormData` object without a `Content-Type` header — documented
+  in `docs/FRONTEND_API.md` §6.4.1 with fetch/Axios examples.
+
+### 1.17 Compiler warnings in `JwtService` / `Env`
 - **Warnings**: `CS8601`/`CS8604` (null reference assignments in `JwtService`) and
   `CS8618` (non-nullable `Env.Value`).
 - **Fix**: fallback values (`?? string.Empty`, `?? "120"`) and `= null!` for the
@@ -120,7 +135,7 @@
 | L-2 | Stock is only re-verified at handover, not reserved at submission | Two requests can both be `diajukan` and the second handover fails with 409 | reserve units at approval |
 | L-3 | `hilang` is mapped to `rusak_berat` in `unit_alat` | Unit history cannot distinguish lost from heavily damaged | add `hilang` to `status_barang` (schema change, needs approval) |
 | L-4 | Reports are CSV, not PDF | Printing uses Excel/browser print | add a PDF renderer |
-| L-5 | No image upload for `image_path` | Admin must supply a URL | add a file upload endpoint |
+| L-5 | Alat images are not resized or thumbnailed | large uploads slow the catalog | add image resizing |
 | L-6 | `users.no_telepon` is now `NOT NULL UNIQUE` | Very old seed rows without a phone number would be rejected | intended: the phone number is the login key |
 | L-7 | Fine rates are appsettings-only | DB-side calls need the rates passed as parameters | acceptable PDO (procedure parameters) |
 | L-8 | No refresh token | Users log in again after 2 hours | add refresh tokens |

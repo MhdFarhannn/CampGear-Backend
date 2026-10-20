@@ -10,12 +10,14 @@ namespace CampGearBackend.Controllers
         {
             var g = app.MapGroup("api/v1/alat");
 
-            //MENAMBAHKAN ALAT
-            g.MapPost("/", async (AlatService service, ClaimsPrincipal user, AlatRequest request) =>
+            //MENAMBAHKAN ALAT (multipart/form-data: idKategori, nama, deskripsi, hargaSewa, gambar)
+            g.MapPost("/", async (AlatService service, ClaimsPrincipal user, HttpRequest http) =>
             {
                 try
                 {
-                    await service.CreateAlat(request, UserAuth.GetId(user));
+                    var form = await http.ReadFormAsync();
+                    var request = ReadForm(form);
+                    await service.CreateAlat(request, UserAuth.GetId(user), form.Files.GetFile("gambar"));
                     return Results.Ok();
                 }
                 catch (Exception ex)
@@ -25,12 +27,14 @@ namespace CampGearBackend.Controllers
                 }
             }).RequireAuthorization(policy => policy.RequireRole("Admin"));
 
-            //EDIT ALAT
-            g.MapPut("/{id}", async (AlatService service, ClaimsPrincipal user, uint id, AlatRequest request) =>
+            //EDIT ALAT (multipart/form-data, gambar optional: leave empty to keep the old image)
+            g.MapPut("/{id}", async (AlatService service, ClaimsPrincipal user, uint id, HttpRequest http) =>
             {
                 try
                 {
-                    await service.UpdateAlat(id, request, UserAuth.GetId(user));
+                    var form = await http.ReadFormAsync();
+                    var request = ReadForm(form);
+                    await service.UpdateAlat(id, request, UserAuth.GetId(user), form.Files.GetFile("gambar"));
                     return Results.Ok();
                 }
                 catch (Exception ex)
@@ -84,6 +88,19 @@ namespace CampGearBackend.Controllers
                     return Results.Problem(title: problem.Title, statusCode: problem.StatusCode, detail: problem.Detail);
                 }
             }).RequireAuthorization();
+        }
+
+        //READ multipart/form-data FIELDS INTO AlatRequest
+        private static AlatRequest ReadForm(IFormCollection form)
+        {
+            return new AlatRequest
+            {
+                IdKategori = uint.TryParse(form["idKategori"], out var idKategori) ? idKategori : 0,
+                Nama = form["nama"].ToString(),
+                Deskripsi = form["deskripsi"].ToString(),
+                HargaSewa = decimal.TryParse(form["hargaSewa"], out var hargaSewa) ? hargaSewa : 0,
+                ImagePath = form["imagePath"].ToString()
+            };
         }
     }
 }
