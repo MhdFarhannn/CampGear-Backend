@@ -1,0 +1,199 @@
+# Module documentation (Input / Process / Output)
+
+Format per function: **Input**, **Process**, **Output**.
+Controller = HTTP only. Service = validation, business rules, SQL, transactions.
+
+---
+
+## 1. Auth
+
+### `POST /api/v1/auth/login` — `AuthController.Login` → `AuthService.Login`
+- **Input**: `{ noTelepon, password }`
+- **Process**:
+  1. Remove spaces and hyphens from `noTelepon`.
+  2. `SELECT u.id, u.nama, u.password, r.nama AS role FROM users u JOIN roles r ... WHERE u.no_telepon = @NoTelepon LIMIT 1`.
+  3. If no row **or** `BCrypt.Verify` fails → throw 401 `"Phone number or password is incorrect"`.
+  4. Build claims from **JWT `NameIdentifier` = id, `Name` = nama, `Role` = role**; sign HS256 with `Jwt:Secret`, expiry `Jwt:ExpiryMinutes`.
+  5. `INSERT INTO log_aktivitas (id_user, aktivitas) VALUES (@id, 'Login')`.
+- **Output**: `200 { token, expiresAt, user { id, nama, role } }` · `400` invalid body · `401` generic.
+
+### `POST /api/v1/auth/logout` — `AuthController.Logout` → `AuthService.Logout`
+- **Input**: Bearer token (id from claim)
+- **Process**: `INSERT INTO log_aktivitas ... 'Logout'`. Stateless JWT: the client must delete the token.
+- **Output**: `200` · `401` missing/invalid token.
+
+---
+
+## 2. Users (Admin)
+
+### `GET /users` — `UsersService.GetAllUsers`
+- **Input**: `page`, `pageSize`, `search` (nama or phone), `idRole`
+- **Process**: `COUNT(*)` with the same filter → `SELECT ... JOIN roles ... LEFT JOIN jenis_kelamin ... ORDER BY u.id LIMIT @Limit OFFSET @Offset`. Password is never selected.
+- **Output**: `200 { items, page, pageSize, total }`.
+
+### `GET /users/{id}`
+- **Input**: id
+- **Process**: single row with role and gender names.
+- **Output**: `200 user` · `404` not found.
+
+### `POST /users`
+- **Input**: `{ idRole, idJenisKelamin?, nama, password, noTelepon, alamat? }`
+- **Process**: password required → normalise phone → check duplicate phone (`409`) → `BCrypt.HashPassword` → `INSERT` → log.
+- **Output**: `200` · `400` · `409` duplicate phone · `403` not Admin.
+
+### `PUT /users/{id}`
+- **Input**: same body, password optional
+- **Process**: load current (`404`) → duplicate check excluding self (`409`) → `UPDATE ... password = COALESCE(@Password, password)`, new hash only when a password is supplied → log.
+- **Output**: `200` · `404` · `409`.
+- **`DELETE /users/{id}`**: refuse with `409` if the user appears in `peminjaman` or `log_aktivitas`; otherwise delete and log. `200` · `409`.
+
+---
+
+## 3. Kategori
+
+| Endpoint | Input | Process | Output |
+|---|---|---|---|
+| `GET /kategori` | — | `SELECT id, nama FROM kategori ORDER BY nama` | `200 list` |
+| `GET /kategori/{id}` | id | single row | `200` / `404` |
+| `POST /kategori` | `{nama}` | trim, duplicate `409`, insert, log | `200` / `409` |
+| `PUT /kategori/{id}` | `{nama}` | load, duplicate excluding self, update, log | `200` / `404` / `409` |
+| `DELETE /kategori/{id}` | id | refuse `409` when used by `alat` | `200` / `409` |
+
+Read endpoints: any authenticated role. Writes: Admin only (403).
+
+---
+
+## 4. Alat
+
+### `GET /alat` / `GET /alat/{id}` — `AlatService`
+- **Input**: `page`, `pageSize`, `search`, `idKategori`
+- **Process**: available stock per alat with one aggregated join, not a query per row:
+
+```sql
+LEFT JOIN (
+    SELECT ua.id_alat, COUNT(*) AS stok
+    FROM unit_alat ua
+    JOIN status_ketersediaan sk ON sk.id = ua.id_status_ketersediaan
+    JOIN status_barang sb ON sb.id = ua.id_status_barang
+    WHERE sk.nama = 'tersedia' AND sb.nama <> 'rusak_berat'
+    GROUP BY ua.id_alat
+) s ON s.id_alat = a.id
+```
+
+- **Output**: `200 { items: [{ id, kategori, nama, hargaSewa, stokTersedia, ... }], total }`.
+
+### `POST/PUT/DELETE /alat` (Admin)
+- **Process**: kategori must exist (`404`); `DELETE` refused (`409`) while `unit_alat` or `detail_peminjaman` rows exist; every write logs.
+- **Output**: `200` / `400` / `404` / `409`.
+
+---
+
+## 5. Unit alat (Admin, Petugas read)
+
+| Endpoint | Process | Output |
+|---|---|---|
+| `GET /unit-alat?idAlat=&idStatusKetersediaan=` | paged join to `alat`, `status_barang`, `status_ketersediaan` | `200` |
+| `GET /unit-alat/{id}` | single row | `200` / `404` |
+| `POST /unit-alat` | alat must exist; unique `kodeInventaris` (`409`); availability forced to `tersedia` | `200` / `404` / `409` |
+| `PUT /unit-alat/{id}` | refuses when the unit is currently `dipinjam` (`409`), unique code check | `200` / `409` |
+| `DELETE /unit-alat/{id}` | refuses when the unit has loan/return history | `200` / `409` |
+
+---
+
+## 6. Peminjaman
+
+### `POST /peminjaman` (Peminjam) — `PeminjamanService.CreatePeminjaman`
+- **Input**: `{ tanggalPeminjaman, tanggalPengembalian, items: [{ idAlat, jumlah }] }`, borrower id from JWT.
+- **Process** (one transaction):
+  1. `tanggalPengembalian >= tanggalPeminjaman`, else `400`; each alat appears once, else `400`.
+  2. `INSERT INTO peminjaman (...) VALUES (..., 'diajukan', ..., 0)`; new id via `MySqlCommand.LastInsertedId`.
+  3. For each item: `INSERT INTO detail_peminjaman ... SELECT @Id, a.id, @Jumlah, a.harga_sewa FROM alat a WHERE a.id = @IdAlat`; 0 rows → `404`.
+  4. Add `a.harga_sewa * @Jumlah * fn_hitung_lama_sewa(...)` to the running total.
+  5. `UPDATE peminjaman SET total_biaya = @Total`; `CommitAsync`; log.
+  6. `catch` → `RollbackAsync` and rethrow.
+- **Output**: `200` · `400` · `404` · `403` (not Peminjam).
+
+### `GET /peminjaman/mine` (Peminjam)
+- **Input**: `page`, `pageSize`, `status`; borrower id from JWT (never from query).
+- **Output**: paged own loans with details and unit codes.
+
+### `GET /peminjaman` (Admin, Petugas)
+- **Input**: `page`, `pageSize`, `status`, `idPeminjam`, `from`, `to` (date range on `tanggal_peminjaman`).
+- **Process**: count + paged header query, then **one** query for all details of the page (`WHERE dp.id_peminjaman IN @Ids`) grouped in memory (no N+1).
+- **Output**: paged list.
+
+### `GET /peminjaman/{id}`
+- **Process**: load header (`404`); if the caller is `Peminjam` and is not the owner → `403`; load details and unit codes.
+- **Output**: loan with `details[]` and `kodeInventaris[]`.
+
+### `PATCH /peminjaman/{id}/approve` (Petugas, Admin)
+- **Process**: `UPDATE peminjaman p JOIN status_peminjaman sp ... SET p.id_petugas = @IdPetugas, p.id_status_peminjaman = 'disetujui' WHERE p.id = @Id AND sp.nama = 'diajukan'`; 0 rows → `409`; log.
+- **Output**: `200` · `409`.
+
+### `PATCH /peminjaman/{id}/reject`
+- Same as approve but `ditolak`, optional `catatan` appended to the log text.
+
+### `PATCH /peminjaman/{id}/borrow` (Petugas, Admin)
+- **Process** (one transaction):
+  1. `SELECT ... WHERE status = 'disetujui' FOR UPDATE`; none → `409`.
+  2. Load `detail_peminjaman`.
+  3. Per detail: `SELECT id FROM unit_alat WHERE id_alat = @IdAlat AND tersedia AND NOT rusak_berat ORDER BY id LIMIT @Jumlah FOR UPDATE`; fewer rows than needed → `409` rollback.
+  4. Insert `detail_unit_peminjaman`, set units to `dipinjam`.
+  5. Set the loan to `dipinjam`, commit, log.
+- **Output**: `200` · `409`.
+
+### `PUT /peminjaman/{id}` (Admin, only `diajukan`)
+- **Process**: transaction; lock and verify status; delete old details, re-insert with current price, recompute total, update header, log.
+- **Output**: `200` · `404` · `409`.
+
+### `DELETE /peminjaman/{id}` (Admin, only `diajukan`/`ditolak`)
+- **Process**: transaction; lock, check status, delete details then header, log.
+- **Output**: `200` · `404` · `409`.
+
+### `GET /peminjaman/monitor` (Petugas, Admin)
+- **Input**: `status` = `jatuh_tempo` | `terlambat` | empty (all active).
+- **Process**: loans with status `disetujui`/`dipinjam`; `hari_terlambat = GREATEST(0, DATEDIFF(CURRENT_DATE, tanggal_pengembalian))`; filters on that date.
+- **Output**: paged list with borrower phone.
+
+---
+
+## 7. Pengembalian
+
+### `POST /pengembalian` — `PengembalianService.CreatePengembalian`
+- **Input**: `{ idPeminjaman, tanggalKembali, catatan?, units: [{ idUnitAlat, statusKondisi, catatan? }] }`
+- **Process** (one transaction):
+  1. Lock the loan; `404` if missing; `403` if a Peminjam returns someone else's loan; `409` if status is not `dipinjam`; `409` if the loan already has a return.
+  2. Load the units of the loan; a returned unit must belong to it (`400`); no duplicates (`400`).
+  3. Per unit: `CALL sp_proses_pengembalian(...)` with the fine rates from `appsettings.json`
+     → inserts/updates `pengembalian` (late days, `denda`) and `detail_pengembalian` (`denda_kondisi`), updates `unit_alat`.
+     `hilang` sets the unit to `rusak_berat` + `tidak_tersedia` (schema has no `hilang` in `status_barang`).
+  4. `UPDATE peminjaman SET status = 'selesai'`; commit; log.
+- **Output**: `200` · `400` · `403` · `404` · `409`.
+
+### `GET /pengembalian`, `GET /pengembalian/{id}`
+- **Process**: paged join to loan and borrower with `from`/`to` on `tanggal_kembali`, then one query for the returned units; owner check for Peminjam.
+- **Output**: header(s) with `details[]`.
+
+---
+
+## 8. Log aktivitas (Admin)
+
+### `GET /log-aktivitas`
+- **Input**: `page`, `pageSize`, `idUser`, `from`, `to`
+- **Process**: `WHERE (@IdUser IS NULL OR l.id_user = @IdUser) AND (@From IS NULL OR l.waktu >= @From) AND (@To IS NULL OR l.waktu < DATE_ADD(@To, INTERVAL 1 DAY))` + count; newest first.
+- **Output**: paged `{ id, idUser, namaUser, aktivitas, waktu }`.
+
+Sources of rows: login, logout, CRUD services, approve/reject/handover/return services,
+and `trg_peminjaman_status_log` for every status change.
+
+---
+
+## 9. Laporan (Admin, Petugas)
+
+| Endpoint | Input | Process | Output |
+|---|---|---|---|
+| `GET /laporan/peminjaman` | `from`, `to`, `format` | aggregate `SUM(dp.jumlah)` per loan, join borrower/officer/status, date range | JSON `{ from, to, totalBiaya, items }` or CSV |
+| `GET /laporan/pengembalian` | `from`, `to`, `format` | join loan/borrower, subquery for `SUM(denda_kondisi)` | JSON `{ from, to, totalDenda, items }` or CSV |
+
+Range defaults to the current month. `to < from` → `400`.
+CSV is `text/csv; charset=utf-8` so it opens directly in Excel and prints.

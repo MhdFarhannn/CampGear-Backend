@@ -1,0 +1,191 @@
+@host = http://localhost:5162/api/v1
+@adminToken = PASTE_ADMIN_TOKEN
+@petugasToken = PASTE_PETUGAS_TOKEN
+@peminjamToken = PASTE_PEMINJAM_TOKEN
+
+### AUTH - login as Admin
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{ "noTelepon": "081200000001", "password": "admin123" }
+
+### AUTH - login as Petugas
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{ "noTelepon": "081200000002", "password": "petugas123" }
+
+### AUTH - login as Peminjam
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{ "noTelepon": "0812-0000-0003", "password": "peminjam123" }
+
+### AUTH - wrong password (expect 401, generic message)
+POST {{host}}/auth/login
+Content-Type: application/json
+
+{ "noTelepon": "081200000001", "password": "wrong" }
+
+### AUTH - logout
+POST {{host}}/auth/logout
+Authorization: Bearer {{peminjamToken}}
+
+### USERS - list (Admin)
+GET {{host}}/users?page=1&pageSize=10&search=
+Authorization: Bearer {{adminToken}}
+
+### USERS - create
+POST {{host}}/users
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "idRole": 3, "idJenisKelamin": 1, "nama": "User Test", "password": "test1234", "noTelepon": "0812-7777 6666", "alamat": "Bandung" }
+
+### USERS - update (id 4)
+PUT {{host}}/users/4
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "idRole": 3, "idJenisKelamin": 2, "nama": "User Test 2", "noTelepon": "081277776666", "alamat": "Bandung" }
+
+### USERS - delete (expect 409, user has loans)
+DELETE {{host}}/users/3
+Authorization: Bearer {{adminToken}}
+
+### KATEGORI - list (all roles)
+GET {{host}}/kategori
+Authorization: Bearer {{peminjamToken}}
+
+### KATEGORI - create
+POST {{host}}/kategori
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "nama": "Kategori Test" }
+
+### KATEGORI - duplicate (expect 409)
+POST {{host}}/kategori
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "nama": "Tenda" }
+
+### ALAT - list with stock (Peminjam)
+GET {{host}}/alat?page=1&pageSize=20
+Authorization: Bearer {{peminjamToken}}
+
+### ALAT - detail
+GET {{host}}/alat/1
+Authorization: Bearer {{peminjamToken}}
+
+### ALAT - create
+POST {{host}}/alat
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "idKategori": 1, "nama": "Tenda Test", "deskripsi": "contoh", "hargaSewa": 10000 }
+
+### ALAT - delete (expect 409, alat still has units)
+DELETE {{host}}/alat/1
+Authorization: Bearer {{adminToken}}
+
+### UNIT ALAT - list by alat
+GET {{host}}/unit-alat?idAlat=1
+Authorization: Bearer {{adminToken}}
+
+### UNIT ALAT - create
+POST {{host}}/unit-alat
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{ "idAlat": 1, "kodeInventaris": "TND-DM4-004", "idStatusBarang": 1 }
+
+### PEMINJAMAN - submit (Peminjam), 3 days, expect total 324000
+POST {{host}}/peminjaman
+Authorization: Bearer {{peminjamToken}}
+Content-Type: application/json
+
+{
+  "tanggalPeminjaman": "2026-10-21",
+  "tanggalPengembalian": "2026-10-24",
+  "items": [ { "idAlat": 1, "jumlah": 2 }, { "idAlat": 6, "jumlah": 1 } ]
+}
+
+### PEMINJAMAN - my loans (Peminjam)
+GET {{host}}/peminjaman/mine?page=1&pageSize=20
+Authorization: Bearer {{peminjamToken}}
+
+### PEMINJAMAN - list (Petugas)
+GET {{host}}/peminjaman?page=1&pageSize=20&status=diajukan
+Authorization: Bearer {{petugasToken}}
+
+### PEMINJAMAN - detail (Peminjam, own loan only)
+GET {{host}}/peminjaman/1
+Authorization: Bearer {{peminjamToken}}
+
+### PEMINJAMAN - approve (Petugas)
+PATCH {{host}}/peminjaman/1/approve
+Authorization: Bearer {{petugasToken}}
+
+### PEMINJAMAN - reject (Petugas)
+PATCH {{host}}/peminjaman/1/reject
+Authorization: Bearer {{petugasToken}}
+Content-Type: application/json
+
+{ "catatan": "stok tidak cukup" }
+
+### PEMINJAMAN - borrow / handover (Petugas)
+PATCH {{host}}/peminjaman/1/borrow
+Authorization: Bearer {{petugasToken}}
+
+### PEMINJAMAN - monitor due/overdue (Petugas)
+GET {{host}}/peminjaman/monitor?status=terlambat
+Authorization: Bearer {{petugasToken}}
+
+### PENGEMBALIAN - return with condition (Peminjam), late fine + condition fines
+POST {{host}}/pengembalian
+Authorization: Bearer {{peminjamToken}}
+Content-Type: application/json
+
+{
+  "idPeminjaman": 1,
+  "tanggalKembali": "2026-10-26",
+  "catatan": "telat 2 hari",
+  "units": [
+    { "idUnitAlat": 1, "statusKondisi": "baik" },
+    { "idUnitAlat": 2, "statusKondisi": "rusak_ringan" },
+    { "idUnitAlat": 11, "statusKondisi": "hilang" }
+  ]
+}
+
+### PENGEMBALIAN - list (Petugas)
+GET {{host}}/pengembalian?page=1&pageSize=20
+Authorization: Bearer {{petugasToken}}
+
+### PENGEMBALIAN - detail
+GET {{host}}/pengembalian/1
+Authorization: Bearer {{peminjamToken}}
+
+### LOG AKTIVITAS - list (Admin)
+GET {{host}}/log-aktivitas?page=1&pageSize=20
+Authorization: Bearer {{adminToken}}
+
+### LAPORAN - peminjaman JSON
+GET {{host}}/laporan/peminjaman?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{petugasToken}}
+
+### LAPORAN - peminjaman CSV
+GET {{host}}/laporan/peminjaman?from=2026-10-01&to=2026-10-31&format=csv
+Authorization: Bearer {{petugasToken}}
+
+### LAPORAN - pengembalian JSON
+GET {{host}}/laporan/pengembalian?from=2026-10-01&to=2026-10-31
+Authorization: Bearer {{petugasToken}}
+
+### SECURITY - peminjam accessing admin endpoint (expect 403)
+GET {{host}}/users
+Authorization: Bearer {{peminjamToken}}
+
+### SECURITY - no token (expect 401)
+GET {{host}}/alat
