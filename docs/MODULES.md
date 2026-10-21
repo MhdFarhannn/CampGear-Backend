@@ -17,6 +17,11 @@ Controller = HTTP only. Service = validation, business rules, SQL, transactions.
   5. `INSERT INTO log_aktivitas (id_user, aktivitas) VALUES (@id, 'Login')`.
 - **Output**: `200 { token, expiresAt, user { id, nama, role } }` · `400` invalid body · `401` generic.
 
+### `GET /api/v1/auth/me` — `AuthController` handler → `UsersService.GetUserById`
+- **Input**: Bearer token (id from `NameIdentifier` claim)
+- **Process**: read the user id from the token, then load that user with role and gender names. No password column is selected.
+- **Output**: `200 UserResponse` · `401` missing/invalid token · `404` if the token's user no longer exists.
+
 ### `POST /api/v1/auth/logout` — `AuthController.Logout` → `AuthService.Logout`
 - **Input**: Bearer token (id from claim)
 - **Process**: `INSERT INTO log_aktivitas ... 'Logout'`. Stateless JWT: the client must delete the token.

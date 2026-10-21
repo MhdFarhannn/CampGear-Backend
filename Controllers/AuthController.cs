@@ -25,6 +25,21 @@ namespace CampGearBackend.Controllers
                 }
             });
 
+            //CURRENT USER PROFILE
+            g.MapGet("/me", async (UsersService service, ClaimsPrincipal user) =>
+            {
+                try
+                {
+                    var profile = await service.GetUserById(UserAuth.GetId(user));
+                    return Results.Ok(profile);
+                }
+                catch (Exception ex)
+                {
+                    var problem = Problem.Fault(ex);
+                    return Results.Problem(title: problem.Title, statusCode: problem.StatusCode, detail: problem.Detail);
+                }
+            }).RequireAuthorization();
+
             //LOGOUT (JWT IS STATELESS, ONLY WRITES log_aktivitas, THE CLIENT DISCARDS THE TOKEN)
             g.MapPost("/logout", async (AuthService service, ClaimsPrincipal user) =>
             {

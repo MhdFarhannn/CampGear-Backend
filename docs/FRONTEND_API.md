@@ -86,9 +86,36 @@ Authorization: Bearer <token>
   `expiresAt` as hard.
 - Claims: user id, name, role. The API always takes the user id from the token,
   never from the body — a client cannot act as another user.
+- `GET /auth/me` reads the id from the token, so it cannot return another user's
+  profile.
 - Role values are exactly `Admin`, `Petugas`, `Peminjam`.
 
-### 3.3 Logout
+### 3.3 Current user
+
+`GET /api/v1/auth/me` — **requires token**
+
+Returns the profile of the user the token belongs to (id from the token, never
+from a query or body parameter). The password is never included.
+
+**200 OK**
+
+```json
+{
+  "id": 1,
+  "nama": "Admin CampGear",
+  "noTelepon": "081200000001",
+  "alamat": "Jl. Merdeka No. 1, Bandung",
+  "idRole": 1,
+  "role": "Admin",
+  "idJenisKelamin": 1,
+  "jenisKelamin": "Laki-laki",
+  "createdAt": "2026-10-20T07:58:03Z"
+}
+```
+
+**401 Unauthorized** — missing, invalid, or expired token.
+
+### 3.4 Logout
 
 `POST /api/v1/auth/logout` — **requires token**
 
@@ -97,7 +124,7 @@ Authorization: Bearer <token>
   **must delete the token** from storage and navigate to the login screen.
 - The old token technically stays valid until it expires (no blacklist).
 
-### 3.4 Recommended client flow
+### 3.5 Recommended client flow
 
 ```
 1. Login -> store { token, expiresAt, user } (localStorage/sessionStorage)
@@ -180,6 +207,7 @@ jenis_kelamin 1=Laki-laki 2=Perempuan.
 | Method | Path | Auth | Body | Response |
 |---|---|---|---|---|
 | POST | `/auth/login` | public | `LoginRequest` | `LoginResponse` |
+| GET | `/auth/me` | any token | — | `UserResponse` |
 | POST | `/auth/logout` | any token | — | empty |
 
 ### 6.2 Users — Admin only
