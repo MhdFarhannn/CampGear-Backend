@@ -87,7 +87,7 @@ The image URL is returned by `GET /alat/{id}` as `imagePath`
 
 | Module | Endpoints | Roles |
 |---|---|---|
-| Auth | `POST /auth/login`, `GET /auth/me`, `POST /auth/logout` | public, any token, any token |
+| Auth | `POST /auth/login`, `POST /auth/logout` | public, any token |
 | Users | `GET/POST /users`, `GET/PUT/DELETE /users/{id}` | Admin |
 | Kategori | `GET /kategori`, `GET /kategori/{id}`, `POST/PUT/DELETE /kategori` | any token (write: Admin) |
 | Alat | `GET /alat`, `GET /alat/{id}`, `POST/PUT/DELETE /alat` | any token (write: Admin) |
